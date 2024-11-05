@@ -38,8 +38,6 @@ if($subscription_object['action']=='PUT'){
 	$result=$this->subscription_add($params);
 }
 
-// is this the guest
-
 // this is the kind of thing that is sent.
 // action: put / delete / add
 // authToken	"ABUywzOapjCy9OkLztFJ/g=="
