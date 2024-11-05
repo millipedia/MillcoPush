@@ -20,7 +20,7 @@
 		</select>
 	</div>
 	<div>
-		<label class="InputfieldHeader uk-form-label" for="mps_content">Notiication</label>
+		<label class="InputfieldHeader uk-form-label" for="mps_content">Notification</label>
 		<textarea id="mps_content" name="mps_content" class="uk-textarea" required></textarea>
 		<p>Note: we strip any tags and returns out of this message so don't get carried away</p>
 	</div>

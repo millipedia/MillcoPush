@@ -4,7 +4,7 @@ namespace ProcessWire;
 /**
  * ProcessMillcoPush
  * 
- * Admin page for managing various mu settings 
+ * Admin page for tesing MilloPush
  */
 
 
