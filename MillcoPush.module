@@ -1,0 +1,372 @@
+<?php
+
+namespace ProcessWire;
+
+use function PHPSTORM_META\map;
+
+use Minishlink\WebPush\WebPush;
+use Minishlink\WebPush\Subscription;
+
+/**
+ * MillcoPush
+ * 
+ * Playing around with push notifications,
+ * 
+ */
+
+
+class MillcoPush extends WireData implements Module, ConfigurableModule
+{
+
+
+	public static function getModuleInfo()
+	{
+		return [
+			'title' => 'MillcoPush',
+			'summary' => 'Playing around with pushin',
+			'version' => 1,
+			'autoload' => true, // needs to be autoload for hooks.
+			'singular' => true,
+			'permanent' => false,
+			'permission' => '',
+			'icon' => 'arrow-right',
+			'requires' => [
+				'PHP>=8.0.0',
+				'ProcessWire>=3.0.16',
+			],
+			'installs' => ['ProcessMillcoPush']
+		];
+	}
+
+	// Add config fields.
+	function getModuleConfigInputfields(InputfieldWrapper $inputfields)
+	{
+
+		// Add a new Inputfield to it
+		$f = $this->wire('modules')->get('InputfieldText');
+		$f->attr('name', 'public_key');
+		// $f->attr('initValue', 'default thing');  
+		$f->attr('value', $this->get('public_key'));
+
+		$f->label = 'Public key';
+		$inputfields->add($f);
+
+		// Add a new Inputfield to it
+		$f = $this->wire('modules')->get('InputfieldText');
+		$f->attr('name', 'private_key');
+		// $f->attr('initValue', 'default thing');  
+		$f->attr('value', $this->get('private_key'));
+
+		$f->label = 'Private key';
+		$inputfields->add($f);
+
+		return $inputfields;
+	}
+
+	static protected $defaults = array(
+		'private_key' => '',
+		'public_key' => ''
+
+	);
+
+	public function __construct()
+	{
+		// populate defaults, which will get replaced with actual
+		// configured values before the init/ready methods are called
+		// again this is done in ProcessMillcoPush now.
+		$this->setArray(self::$defaults);
+	}
+
+	// 	init() method: This is called during the initialization after all modules have been loaded but before ProcessWire has fully bootstrapped and started delivering content.
+	//  It’s the right place to add hooks or events that occur before page rendering starts.
+
+	public function init()
+	{
+		/** @var MillcoPush $this */
+
+		// Add a deck
+		wire()->addHook('/millcopush/subscription/manage/', function ($event) {
+			include('ajax_subscription_manage.php');
+		});
+	}
+
+	//ready() method: This is called after ProcessWire is fully bootstrapped, and is about to start rendering a page. At this point, the entire API is available and ready for use. This method can be used when you depend on the current page being accessed, like changing or adding certain behaviors or settings based on the current page or user.
+	public function ready()
+	{
+	}
+
+
+
+	/**
+	 * 
+	 * If we have a public key then write out a subscribe
+	 * button and the relevant javascript
+	 * @return String $markup
+	 */
+
+	public function markup_subs_butts()
+	{
+
+		$public_key=$this->get('public_key');
+
+		$markup = '';
+
+		if($public_key){
+			$markup .= wire('files')->render(wire('config')->paths->siteModules . 'MillcoPush/markup/subs_buttons.php', ['mp' => $this, 'public_key'=>$public_key]);
+		}else{
+
+			$markup.= '<div class="alert">Missing public key.</div>';
+		}
+
+		return $markup;
+	}
+
+
+	/**
+	 * Add a subscription
+	 * @param Array $params
+	 */
+
+	public function subscription_add($sub_array)
+	{
+
+		$db = $this->wire('database');
+
+		// TODO should check params here before trying
+		// to do an update.
+
+		$i = "INSERT INTO `millco_push_subscriptions` (
+			user_key,
+			mp_authToken,
+			mp_contentEncoding,
+			mp_endpoint,
+			mp_subscription_json
+			) VALUES (:user_key, :authtoken, :contentEncoding, :endpoint, :subscription_json);";
+
+		$params = array(
+			":user_key" => $sub_array['user_key'],
+			":authtoken" => $sub_array['authToken'],
+			":contentEncoding" => $sub_array['contentEncoding'],
+			":endpoint" => $sub_array['endpoint'],
+			":subscription_json" => $sub_array['subscription_json'],
+		);
+
+		$query = $db->prepare($i);
+		$query->execute($params);
+
+		return $db->lastInsertId();;
+	}
+
+	/**
+	 * Delete a subscription
+	 * @param Array $params
+	 */
+
+	public function subscription_delete($sub_array)
+	{
+
+		$db = $this->wire('database');
+
+		$d = "DELETE  FROM `millco_push_subscriptions` WHERE
+			user_key = :user_key
+			AND mp_authToken = :authtoken
+			LIMIT 10";
+
+		$params = array(
+			":user_key" => $sub_array['user_key'],
+			":authtoken" => $sub_array['authToken']
+		);
+
+		$deleted = $db->prepare($d);
+		$result = $deleted->execute($params);
+
+		return $result;
+	}
+
+	/**
+	 * Update a subscription
+	 * Apparenrly the endpoint can change...
+	 * @param Array $params
+	 */
+
+	public function subscription_update($sub_array)
+	{
+
+		$db = $this->wire('database');
+		$q = "UPDATE `millco_push_subscriptions`
+			SET  mp_endpoint=:mp_endpoint
+			WHERE user_key= :user_key AND mp_authToken = :authtoken
+			LIMIT 1
+			";
+
+		$params = array(
+			":mp_endpoint" => $sub_array['endpoint'],
+			":user_key" => $sub_array['user_key'],
+			":authtoken" => $sub_array['authToken'],
+		);
+
+		$updated = $db->prepare($q);
+		$result = $updated->execute($params);
+
+		return $result;
+	}
+
+
+	function send_push_notification($subscription_json, $message)
+	{
+
+		require __DIR__ . '/webpush/vendor/autoload.php';
+
+		// store the client-side `PushSubscription` object (calling `.toJSON` on it) as-is and then create a WebPush\Subscription from it
+		$subscription = Subscription::create(json_decode($subscription_json, true));
+
+		$auth = array(
+			'VAPID' => array(
+				'subject' => 'Test Notification',
+				'publicKey' => $this->get('public_key'),
+				'privateKey' => $this->get('private_key')
+			),
+		);
+
+
+		// $defaultOptions = [
+		// 	'TTL' => 300, // defaults to 4 weeks
+		// 	'urgency' => 'normal', // protocol defaults to "normal". (very-low, low, normal, or high)
+		// 	'topic' => 'newEvent', // not defined by default. Max. 32 characters from the URL or filename-safe Base64 characters sets
+		// 	'batchSize' => 200, // defaults to 1000
+		// ];
+
+		$webPush = new WebPush($auth);
+
+		$report = $webPush->sendOneNotification(
+			$subscription,
+			'{"message":"' . $message . '" }',
+		);
+
+		// handle eventual errors here, and remove the subscription from your server if it is expired
+		$endpoint = $report->getRequest()->getUri()->__toString();
+
+		if ($report->isSuccess()) {
+
+			$this->log("[v] Message sent successfully for subscription {$endpoint}.");
+
+			return 1;
+
+		} else {
+			$this->log("[x] Message failed to sent for subscription {$endpoint}: {$report->getReason()}");
+			
+			return 0;
+		}
+	}
+
+
+	/**
+	 * Return an array of unique user ids from the sub table.
+	 */
+
+	public function subscribed_users()
+	{
+
+		// get a list of our subscribed users.
+
+		$db = $this->wire('database');
+
+		$q = "SELECT DISTINCT user_key
+				FROM `millco_push_subscriptions`
+				";
+
+		$query = $db->prepare($q);
+		$query->execute();
+
+		$subscribed_users = $query->fetchAll();
+
+		return $subscribed_users;
+	}
+
+
+	/**
+	 * Return subscriptions for a user. 
+	 * They might have subscribed several times of course
+	 */
+
+	public function user_subscriptions($user_key)
+	{
+
+		// get a list of our subscribed users.
+
+		$db = $this->wire('database');
+
+		$user_key = (int)$user_key;
+
+		$q = "SELECT * FROM `millco_push_subscriptions` WHERE user_key = $user_key ";
+
+		$query = $db->prepare($q);
+		$query->execute();
+
+		$users_subs = $query->fetchAll();
+
+		return $users_subs;
+	}
+
+
+	public function notify_user($user_key, $message)
+	{
+
+		// get the subscription(s) for this user.
+		$users_subs = $this->user_subscriptions($user_key);
+
+		$subs_tick=0;
+
+		foreach ($users_subs as $users_sub) {
+			if($this->send_push_notification($users_sub['mp_subscription_json'], $message)){
+				$subs_tick++;
+			}
+		}
+
+		return $subs_tick;
+	}
+
+
+
+	public function ___install()
+	{
+
+		$database = $this->wire('database');
+
+		$sql = "CREATE TABLE IF NOT EXISTS `millco_push_subscriptions` (
+			`mp_id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			`user_key` INT(10) NOT NULL,
+			`mp_authToken` VARCHAR(255) NOT NULL,
+			`mp_contentEncoding` VARCHAR(255) NOT NULL,
+			`mp_endpoint` VARCHAR(255) NOT NULL,
+			`mp_subscription_json` TEXT NOT NULL
+		);";
+
+		try {
+			$database->exec($sql);
+		} catch (Exception $e) {
+			$this->message("Could not create table: " . $e->getMessage());
+		}
+
+
+
+		return true;
+	}
+
+
+	public function ___uninstall()
+	{
+
+		$database = $this->wire('database');
+
+		$sql = "DROP TABLE `millco_push_subscriptions`;";
+
+		try {
+			$database->exec($sql);
+		} catch (Exception $e) {
+			$this->message("Could not drop table: " . $e->getMessage());
+		}
+
+		return true;
+	}
+}
