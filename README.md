@@ -1,7 +1,7 @@
 # MillcoPush
 
 This is a ProcessWire module to allow users to subscribe to push notifications in their browsers or as part of a PWA. 
-It's being built for a members' only Citizen Science project we manage which has pretty specific requirements, but it might be of some use as a starting point.
+It's being built for a members' only Citizen Science project we manage which has pretty specific requirements, and it's really not finished yet, but it might be of some use as a starting point if you need to do something similar.
 
 It uses the [web-push-php](https://github.com/web-push-libs/web-push-php) library and currently leans heavily on the example javascript from that repo.
 
@@ -16,7 +16,7 @@ as lifted from the web-push-api readme, to create your keys you can do:
 	openssl ec -in private_key.pem -pubout -outform DER|tail -c 65|base64|tr -d '=' |tr '/+' '_-' >> public_key.txt
 	openssl ec -in private_key.pem -outform DER|tail -c +8|head -c 32|base64|tr -d '=' |tr '/+' '_-' >> private_key.txt
 
-These then need to be added to the module config
+These then need to be added to the module config.
 
 ## Service worker
 

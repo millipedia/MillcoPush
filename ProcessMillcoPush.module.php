@@ -25,7 +25,7 @@ class ProcessMillcoPush extends Process implements Module
 			'page' => [
 				'name' => 'mpush',
 				'parent' => 'setup',
-				'title' => 'Push',
+				'title' => 'Push notifications',
 				'permission' => 'millco-push-manage',
 			],
 			'autoload' => false,
