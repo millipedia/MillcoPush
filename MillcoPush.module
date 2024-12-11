@@ -2,8 +2,6 @@
 
 namespace ProcessWire;
 
-use function PHPSTORM_META\map;
-
 use Minishlink\WebPush\WebPush;
 use Minishlink\WebPush\Subscription;
 
@@ -91,9 +89,7 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 	}
 
 	//ready() method: This is called after ProcessWire is fully bootstrapped, and is about to start rendering a page. At this point, the entire API is available and ready for use. This method can be used when you depend on the current page being accessed, like changing or adding certain behaviors or settings based on the current page or user.
-	public function ready()
-	{
-	}
+	public function ready() {}
 
 
 
@@ -107,15 +103,15 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 	public function markup_subs_butts()
 	{
 
-		$public_key=$this->get('public_key');
+		$public_key = $this->get('public_key');
 
 		$markup = '';
 
-		if($public_key){
-			$markup .= wire('files')->render(wire('config')->paths->siteModules . 'MillcoPush/markup/subs_buttons.php', ['mp' => $this, 'public_key'=>$public_key]);
-		}else{
+		if ($public_key) {
+			$markup .= wire('files')->render(wire('config')->paths->siteModules . 'MillcoPush/markup/subs_buttons.php', ['mp' => $this, 'public_key' => $public_key]);
+		} else {
 
-			$markup.= '<div class="alert">Missing public key.</div>';
+			$markup .= '<div class="alert">Missing public key.</div>';
 		}
 
 		return $markup;
@@ -212,6 +208,14 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 	}
 
 
+	/** 
+	 * Send a single push notification given a subscription object and a message
+	 *
+	 * @param String Subscription_json
+	 * @param String message
+	 */
+
+
 	function send_push_notification($subscription_json, $message)
 	{
 
@@ -227,7 +231,6 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 				'privateKey' => $this->get('private_key')
 			),
 		);
-
 
 		// $defaultOptions = [
 		// 	'TTL' => 300, // defaults to 4 weeks
@@ -251,11 +254,93 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 			$this->log("[v] Message sent successfully for subscription {$endpoint}.");
 
 			return 1;
-
 		} else {
 			$this->log("[x] Message failed to sent for subscription {$endpoint}: {$report->getReason()}");
-			
+
 			return 0;
+		}
+	}
+
+	/** 
+	 * Send a notification to an array of users. For example, when a page that is being followed has been updated we can 
+	 * pull out a list of users who are following and push a message to them.
+	 * @param Array of user IDs
+	 * @param String message
+	 */
+
+
+
+	function send_push_notification_to_users($users_array, $message)
+	{
+
+		// get subscription objects for these users.
+		$user_subs = $this->users_subscriptions($users_array);
+
+		// array of notifications
+		$notifications = [];
+
+		require __DIR__ . '/webpush/vendor/autoload.php';
+
+
+		// Build message options.
+		$message_options=[];
+		$message_options['message']= 'hatstand ' . $message;
+		// $message_options['icon']='/android-chrome-192x192.png';
+
+		$data=array("click_action"=>"https://csp.millipedia.net/discussions/testing-new-discussions/");
+			
+		$message_options['data'] = $data;
+
+
+		$message_options_json= json_encode($message_options);
+
+
+
+		// loop through our subscriptions and 
+		// add them to our list
+		foreach ($user_subs as $user_sub) {
+
+			// store the client-side `PushSubscription` object (calling `.toJSON` on it) as-is and then create a WebPush\Subscription from it
+			$subscription = Subscription::create(json_decode($user_sub['mp_subscription_json'], true));
+
+			$notification = [];
+			$notification['subscription'] = $subscription;
+			$notification['payload'] = $message_options_json;
+	
+			$notifications[] = $notification;
+		}
+
+		$auth = array(
+			'VAPID' => array(
+				'subject' => 'Test Notification',
+				'publicKey' => $this->get('public_key'),
+				'privateKey' => $this->get('private_key')
+			),
+		);
+
+		$webPush = new WebPush($auth);
+
+		// send multiple notifications with payload
+		foreach ($notifications as $notification) {
+			$webPush->queueNotification(
+				$notification['subscription'],
+				$notification['payload'] // optional (defaults null)
+			);
+		}
+
+
+		/**
+		 * Check sent results
+		 * @var MessageSentReport $report
+		 */
+		foreach ($webPush->flush() as $report) {
+			$endpoint = $report->getRequest()->getUri()->__toString();
+
+			if ($report->isSuccess()) {
+				$this->log("[v] Message sent successfully for subscription {$endpoint}.");
+			} else {
+				$this->log("[x] Message failed to sent for subscription {$endpoint}: {$report->getReason()}");
+			}
 		}
 	}
 
@@ -309,23 +394,55 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 	}
 
 
+	/**
+	 * Return subscriptions for an array of users. 
+	 * They might have subscribed several times of course
+	 * @param Array $user_key_array - an  array of user ids.
+	 */
+
+	public function users_subscriptions($user_key_array)
+	{
+		$db = $this->wire('database');
+
+		$users_subs = array();
+
+		if (is_array($user_key_array) && count($user_key_array)) {
+
+			// pdo wants a string
+			$user_key_array_string = implode(',', $user_key_array);
+
+			$q = "SELECT * FROM `millco_push_subscriptions` WHERE user_key IN(:user_key_array_string) ";
+
+			$params = array(
+				":user_key_array_string" => $user_key_array_string
+			);
+
+			$query = $db->prepare($q);
+			$query->execute($params);
+
+			$users_subs = $query->fetchAll();
+		}
+
+		return $users_subs;
+	}
+
+
 	public function notify_user($user_key, $message)
 	{
 
 		// get the subscription(s) for this user.
 		$users_subs = $this->user_subscriptions($user_key);
 
-		$subs_tick=0;
+		$subs_tick = 0;
 
 		foreach ($users_subs as $users_sub) {
-			if($this->send_push_notification($users_sub['mp_subscription_json'], $message)){
+			if ($this->send_push_notification($users_sub['mp_subscription_json'], $message)) {
 				$subs_tick++;
 			}
 		}
 
 		return $subs_tick;
 	}
-
 
 
 	public function ___install()
@@ -347,9 +464,6 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 		} catch (Exception $e) {
 			$this->message("Could not create table: " . $e->getMessage());
 		}
-
-
-
 		return true;
 	}
 
