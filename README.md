@@ -63,7 +63,11 @@ Something like:
 		],
 		"theme_color": "#ffffff",
 		"background_color": "#ffffff",
-		"display": "standalone"
+		"display": "standalone",
+		"scope": "/",
+		"start_url": "/",
+		"display": "standalone",
+		"handle_links": "preferred"
 	}
 
 
@@ -79,5 +83,18 @@ That should probably be on a members only page whilst we require a user ID.
 ## Send a message
 
 There's a very (very) simple form to select a user that has subscribed and send them a message in the Setup->Push page in the PW admin. Hopefully there will be more soon.
+
+In the API you can send to an array of user ids using 
+
+		/** @var MillcoPush $millcopush **/
+		$millcopush=wire('modules')->getModule('MillcoPush');
+
+		// send notifications
+		$millcopush->send_push_notification_to_users($users,'CSP Discussion update');
+
+or to a single user using
+
+		$success=$mp->notify_user($recipient_id, $message);
+
 
 stephen at [millipedia.com](https://millipedia.com)
