@@ -270,7 +270,7 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 
 
 
-	function send_push_notification_to_users($users_array, $message)
+	function send_push_notification_to_users($users_array, $message, $url='')
 	{
 
 		// get subscription objects for these users.
@@ -284,12 +284,17 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 
 		// Build message options.
 		$message_options=[];
-		$message_options['message']= 'hatstand ' . $message;
+		$message_options['message']= $message;
 		// $message_options['icon']='/android-chrome-192x192.png';
+		
+		// if we've been passed a url then add it to our data value
+		// We need to look for this click_action in the service worker js.
+		if($url!='' && filter_var($url, FILTER_VALIDATE_URL)){
+			$data=array("click_action"=>$url);
+			$message_options['data'] = $data;
+		}
 
-		$data=array("click_action"=>"https://csp.millipedia.net/discussions/testing-new-discussions/");
-			
-		$message_options['data'] = $data;
+
 
 
 		$message_options_json= json_encode($message_options);

@@ -90,7 +90,7 @@ In the API you can send to an array of user ids using
 		$millcopush=wire('modules')->getModule('MillcoPush');
 
 		// send notifications
-		$millcopush->send_push_notification_to_users($users,'CSP Discussion update');
+		$millcopush->send_push_notification_to_users($users,$message, $url);
 
 or to a single user using
 
