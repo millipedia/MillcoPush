@@ -209,66 +209,11 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 
 
 	/** 
-	 * Send a single push notification given a subscription object and a message
-	 *
-	 * @param String Subscription_json
-	 * @param String message
-	 */
-
-
-	function send_push_notification($subscription_json, $message)
-	{
-
-		require __DIR__ . '/webpush/vendor/autoload.php';
-
-		// store the client-side `PushSubscription` object (calling `.toJSON` on it) as-is and then create a WebPush\Subscription from it
-		$subscription = Subscription::create(json_decode($subscription_json, true));
-
-		$auth = array(
-			'VAPID' => array(
-				'subject' => 'Test Notification',
-				'publicKey' => $this->get('public_key'),
-				'privateKey' => $this->get('private_key')
-			),
-		);
-
-		// $defaultOptions = [
-		// 	'TTL' => 300, // defaults to 4 weeks
-		// 	'urgency' => 'normal', // protocol defaults to "normal". (very-low, low, normal, or high)
-		// 	'topic' => 'newEvent', // not defined by default. Max. 32 characters from the URL or filename-safe Base64 characters sets
-		// 	'batchSize' => 200, // defaults to 1000
-		// ];
-
-		$webPush = new WebPush($auth);
-
-		$report = $webPush->sendOneNotification(
-			$subscription,
-			'{"message":"' . $message . '" }',
-		);
-
-		// handle eventual errors here, and remove the subscription from your server if it is expired
-		$endpoint = $report->getRequest()->getUri()->__toString();
-
-		if ($report->isSuccess()) {
-
-			$this->log("[v] Message sent successfully for subscription {$endpoint}.");
-
-			return 1;
-		} else {
-			$this->log("[x] Message failed to sent for subscription {$endpoint}: {$report->getReason()}");
-
-			return 0;
-		}
-	}
-
-	/** 
 	 * Send a notification to an array of users. For example, when a page that is being followed has been updated we can 
 	 * pull out a list of users who are following and push a message to them.
 	 * @param Array of user IDs
 	 * @param String message
 	 */
-
-
 
 	function send_push_notification_to_users($users_array, $message, $url='')
 	{
@@ -276,11 +221,7 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 		// get subscription objects for these users.
 		$user_subs = $this->users_subscriptions($users_array);
 
-		// array of notifications
-		$notifications = [];
-
 		require __DIR__ . '/webpush/vendor/autoload.php';
-
 
 		// Build message options.
 		$message_options=[];
@@ -294,12 +235,10 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 			$message_options['data'] = $data;
 		}
 
-
-
-
 		$message_options_json= json_encode($message_options);
 
-
+		// array of notifications
+		$notifications = [];
 
 		// loop through our subscriptions and 
 		// add them to our list
@@ -309,21 +248,33 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 			$subscription = Subscription::create(json_decode($user_sub['mp_subscription_json'], true));
 
 			$notification = [];
+			$notification['user_key'] = $user_sub['user_key'];
 			$notification['subscription'] = $subscription;
 			$notification['payload'] = $message_options_json;
 	
 			$notifications[] = $notification;
 		}
+		
+		// TODO:
 
 		$auth = array(
 			'VAPID' => array(
-				'subject' => 'Test Notification',
+				'subject' => 'https://millipedia.com/',
 				'publicKey' => $this->get('public_key'),
 				'privateKey' => $this->get('private_key')
 			),
 		);
 
+		// $defaultOptions = [
+		// 	'TTL' => 300, // defaults to 4 weeks
+		// 	'urgency' => 'normal', // protocol defaults to "normal". (very-low, low, normal, or high)
+		// 	'topic' => 'Update', // not defined by default. Max. 32 characters from the URL or filename-safe Base64 characters sets
+		// 	'batchSize' => 1000, // defaults to 1000
+		// ];
+
 		$webPush = new WebPush($auth);
+
+		// $webPush->setDefaultOptions($defaultOptions);
 
 		// send multiple notifications with payload
 		foreach ($notifications as $notification) {
@@ -334,6 +285,8 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 		}
 
 
+		$notifications_sent=0;
+
 		/**
 		 * Check sent results
 		 * @var MessageSentReport $report
@@ -342,11 +295,14 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 			$endpoint = $report->getRequest()->getUri()->__toString();
 
 			if ($report->isSuccess()) {
+				$notifications_sent++;
 				$this->log("[v] Message sent successfully for subscription {$endpoint}.");
 			} else {
 				$this->log("[x] Message failed to sent for subscription {$endpoint}: {$report->getReason()}");
 			}
 		}
+
+		return $notifications_sent;
 	}
 
 
@@ -413,40 +369,46 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 
 		if (is_array($user_key_array) && count($user_key_array)) {
 
-			// pdo wants a string
+			// pdo wants a string 
 			$user_key_array_string = implode(',', $user_key_array);
 
-			$q = "SELECT * FROM `millco_push_subscriptions` WHERE user_key IN(:user_key_array_string) ";
+			// $q = "SELECT * FROM `millco_push_subscriptions` WHERE user_key IN (:user_key_array_string)";
 
-			$params = array(
-				":user_key_array_string" => $user_key_array_string
-			);
+			// $params = array(
+			// 	":user_key_array_string" => $user_key_array_string
+			// );
+
+			// $query = $db->prepare($q);
+			// $query->execute($params);
+			// $users_subs = $query->fetchAll();
+
+			$q = "SELECT * FROM `millco_push_subscriptions` WHERE user_key IN ($user_key_array_string)";
 
 			$query = $db->prepare($q);
-			$query->execute($params);
+			$query->execute();
 
-			$users_subs = $query->fetchAll();
+			while($row=$query->fetch()){
+				$users_subs[]=$row;
+			}
+			
 		}
+
 
 		return $users_subs;
 	}
 
 
-	public function notify_user($user_key, $message)
+	public function notify_user($user_key, $message, $url='')
 	{
 
-		// get the subscription(s) for this user.
-		$users_subs = $this->user_subscriptions($user_key);
+		// All this does now is stick the user id into an 
+		// array and pass it over to send_push_notification_to_users
 
-		$subs_tick = 0;
+		$users_array=[];
+		$users_array[]=$user_key;
+		$success=$this->send_push_notification_to_users($users_array,$message, $url);
 
-		foreach ($users_subs as $users_sub) {
-			if ($this->send_push_notification($users_sub['mp_subscription_json'], $message)) {
-				$subs_tick++;
-			}
-		}
-
-		return $subs_tick;
+		return $success;
 	}
 
 
