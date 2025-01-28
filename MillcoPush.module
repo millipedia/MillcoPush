@@ -16,13 +16,12 @@ use Minishlink\WebPush\Subscription;
 class MillcoPush extends WireData implements Module, ConfigurableModule
 {
 
-
 	public static function getModuleInfo()
 	{
 		return [
 			'title' => 'MillcoPush',
 			'summary' => 'Playing around with pushin',
-			'version' => 1,
+			'version' => 1.1,
 			'autoload' => true, // needs to be autoload for hooks.
 			'singular' => true,
 			'permanent' => false,
@@ -189,8 +188,9 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 	{
 
 		$db = $this->wire('database');
+		// let's also zero the strikes if we've updated the endpoint
 		$q = "UPDATE `millco_push_subscriptions`
-			SET  mp_endpoint=:mp_endpoint
+			SET  mp_endpoint=:mp_endpoint, strikes=0
 			WHERE user_key= :user_key AND mp_authToken = :authtoken
 			LIMIT 1
 			";
@@ -265,7 +265,7 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 			),
 		);
 
-		// $defaultOptions = [
+		//  $defaultOptions = [
 		// 	'TTL' => 300, // defaults to 4 weeks
 		// 	'urgency' => 'normal', // protocol defaults to "normal". (very-low, low, normal, or high)
 		// 	'topic' => 'Update', // not defined by default. Max. 32 characters from the URL or filename-safe Base64 characters sets
@@ -275,7 +275,6 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 		$webPush = new WebPush($auth);
 
 		// $webPush->setDefaultOptions($defaultOptions);
-
 		// send multiple notifications with payload
 		foreach ($notifications as $notification) {
 			$webPush->queueNotification(
@@ -283,7 +282,6 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 				$notification['payload'] // optional (defaults null)
 			);
 		}
-
 
 		$notifications_sent=0;
 
@@ -298,7 +296,13 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 				$notifications_sent++;
 				$this->log("[v] Message sent successfully for subscription {$endpoint}.");
 			} else {
+
 				$this->log("[x] Message failed to sent for subscription {$endpoint}: {$report->getReason()}");
+
+				// Add a strike against this endpoint.
+				$this->strike($endpoint);
+
+
 			}
 		}
 
@@ -307,14 +311,77 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 
 
 	/**
-	 * Return an array of unique user ids from the sub table.
+	 * Strike!
+	 * If a message has failed to send then increment the strikes against it.
+	 * We use the endpoint as a key ... cos hey, that's what we get back from WebPush
+	 * 
+	 * @var String $endpoint
+	 */
+
+	 public function strike($endpoint){
+
+		$database = $this->wire('database');
+
+		
+		$sql = "SELECT strikes, user_key FROM `millco_push_subscriptions` WHERE `mp_endpoint` = :endpoint";
+		$select = $database->prepare($sql);
+		
+		try {
+
+			$select->execute([':endpoint' => $endpoint]);
+			$row = $select->fetch();
+
+			if($row['strikes'] > 3){
+
+				//  We've had 3 goes. Let's delete this subscription.
+				$query = $this->database->prepare("DELETE FROM `millco_push_subscriptions` WHERE mp_endpoint=:endpoint LIMIT 1");
+				$delete_result = $query->execute(
+					array(
+						':endpoint' => $endpoint
+					)
+				);
+
+				if($delete_result){
+					$this->log("Subscription for user " . $row['user_key'] . " deleted");
+				}else{
+					$this->log("Unable to delete subscription for user " . $row['user_key'] . "");
+
+				}
+
+			}else{
+
+				// increment strikes for this endpoint
+				$sql = "UPDATE `millco_push_subscriptions` SET `strikes` = `strikes` + 1 WHERE `mp_endpoint` = :endpoint";
+				$update = $database->prepare($sql);
+				
+				try {
+					$update->execute([':endpoint' => $endpoint]);
+				} catch (PDOException $e) {
+					throw new WireException("Database query error: " . $e->getMessage());
+				}
+
+
+			}
+		} catch (PDOException $e) {
+			throw new WireException("Database query error: " . $e->getMessage());
+		}
+		
+		
+		
+		// If this is the
+
+
+	 }
+
+
+	/**
+	 * Return an array of unique user ids from the subscriptions table.
 	 */
 
 	public function subscribed_users()
 	{
 
 		// get a list of our subscribed users.
-
 		$db = $this->wire('database');
 
 		$q = "SELECT DISTINCT user_key
@@ -411,7 +478,6 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 		return $success;
 	}
 
-
 	public function ___install()
 	{
 
@@ -450,4 +516,21 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 
 		return true;
 	}
+
+
+	/**
+	 * Upgrade bits
+	 */
+	public function upgrade($fromVersion, $toVersion) {
+
+        if ($fromVersion < 1.1) {
+
+			$database = $this->wire('database');
+			// Add the column 'strikes'
+			$database->query("ALTER TABLE `millco_push_subscriptions` ADD `strikes` INT NOT NULL DEFAULT 0");
+			$this->log("Subscriptions table updated to include strike col");
+		}
+    }
+
+	
 }
