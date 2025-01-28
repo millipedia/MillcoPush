@@ -90,7 +90,8 @@ In the API you can send to an array of user ids using
 		$millcopush=wire('modules')->getModule('MillcoPush');
 
 		// send notifications
-		$millcopush->send_push_notification_to_users($users,$message, $url);
+		// NB Takes an array of user ids not users.
+		$millcopush->send_push_notification_to_users($user_ids_to_notify, $message, $url);
 
 or to a single user using
 
