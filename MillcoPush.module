@@ -490,7 +490,7 @@ class MillcoPush extends WireData implements Module, ConfigurableModule
 			`mp_contentEncoding` VARCHAR(255) NOT NULL,
 			`mp_endpoint` VARCHAR(255) NOT NULL,
 			`mp_subscription_json` TEXT NOT NULL,
-			`strikes` INT NOT NULL
+			`strikes` INT NOT NULL DEFAULT 0
 		);";
 
 		try {
